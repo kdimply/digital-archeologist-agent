@@ -1,7 +1,5 @@
-def calculate_average(numbers):
-    # BUG: This will crash with ZeroDivisionError if list is empty
-    return sum(numbers) / len(numbers)
+def run():
+    items = [1, 2, 3, 4, 5, 6]
+    return items[5]
 
-# Test cases
-print(calculate_average([10, 20, 30])) # Should pass
-print(calculate_average([]))           # Should fail
+run()
