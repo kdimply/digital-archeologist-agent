@@ -8,48 +8,49 @@ logger = logging.getLogger("LogicFlow.GitHub")
 
 def create_pull_request(issue_id, fixed_code, file_path, explanation):
     """
-    Automates the PR workflow: Branch -> Commit -> Push -> PR.
+    Advanced PR Creator: Commits multiple file changes (patches) 
+    to a new branch and opens a Pull Request.
     """
-    try:
-        g = Github(Config.GITHUB_TOKEN)
-        repo = g.get_repo(Config.GITHUB_REPO)
-        
-        # 1. Branch Management
-        branch_name = f"logicflow/fix-issue-{issue_id}"
-        main_branch = repo.get_branch("main")
-        
-        # Create a new branch from main
-        repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=main_branch.commit.sha)
-        logger.info(f"Created branch: {branch_name}")
+    g = Github(os.getenv("GITHUB_TOKEN"))
+    repo = g.get_repo(os.getenv("REPO_NAME"))
+    
+    # Create a unique branch name
+    branch_name = f"logicflow-fix-{issue_id}-{int(time.time())}"
+    
+    # Get the main branch SHA to start the new branch
+    main_branch = repo.get_branch("main")
+    repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=main_branch.commit.sha)
 
-        # 2. Commit the Fix
-        contents = repo.get_contents(file_path, ref="main")
-        repo.update_file(
-            path=file_path,
-            message=f"LogicFlow: Automated repair for Issue #{issue_id}",
-            content=fixed_code,
-            sha=contents.sha,
-            branch=branch_name
-        )
-        logger.info(f"Committed fix to {file_path}")
+    # Commit each file in the patches dictionary
+    for file_path, content in patches.items():
+        try:
+            # Check if file exists to get its SHA for the update
+            file_ref = repo.get_contents(file_path, ref=branch_name)
+            repo.update_file(
+                path=file_path, 
+                message=f"LogicFlow: Synchronizing {file_path}", 
+                content=content, 
+                sha=file_ref.sha, 
+                branch=branch_name
+            )
+        except Exception:
+            # If file doesn't exist, create it
+            repo.create_file(
+                path=file_path, 
+                message=f"LogicFlow: Initializing {file_path}", 
+                content=content, 
+                branch=branch_name
+            )
 
-        # 3. Create the Pull Request
-        pr_title = f"LogicFlow Repair: Issue #{issue_id}"
-        pr_body = f"### 🤖 LogicFlow Automated Restoration\n\n**Approach:**\n{explanation}\n\n**Validation:**\n- Verified in OCI-compliant Docker sandbox.\n- Status: PASS"
-        
-        pr = repo.create_pull(
-            title=pr_title,
-            body=pr_body,
-            head=branch_name,
-            base="main"
-        )
-        
-        logger.info(f"PR Created Successfully: {pr.html_url}")
-        return pr.html_url
+    # Create the PR
+    pr = repo.create_pull(
+        title=f"LogicFlow Co-Repair: Issue #{issue_id}",
+        body=explanation,
+        base="main",
+        head=branch_name
+    )
+    return pr.html_url
 
-    except Exception as e:
-        logger.error(f"GitHub PR Failure: {e}")
-        return None
     
 def get_github_issues():
     url = f"https://api.github.com/repos/{Config.GITHUB_REPO}/issues?state=open"

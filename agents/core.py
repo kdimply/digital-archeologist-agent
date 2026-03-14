@@ -1,6 +1,7 @@
 import os
 import logging
 import json
+import time
 import streamlit as st
 from google import genai
 from google.genai import types
@@ -9,150 +10,120 @@ from tools.faiss_tool import retrieve_context
 from tools.docker_test_tool import run_isolated_test
 from tools.github_tool import create_pull_request
 
-# Professional logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("LogicFlow")
 
 class DigitalArcheologist:
     def __init__(self):
-        """Initializes the LogicFlow AI with access to Gemini 3 models."""
         try:
             self.client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
-            # Primary: Flash (Speed/Cost), Secondary: Pro (Deep Review)
-            self.available_models = ["gemini-3-flash-preview", "gemini-3.1-pro-preview"]
-            logger.info("LogicFlow Pipeline Architect active.")
+            logger.info("LogicFlow Final Evaluation Architect active.")
         except Exception as e:
             logger.error(f"Initialization failure: {e}")
 
-    def review_restoration(self, code, explanation):
+    def excavate_and_repair(self, issue_id, broken_code, file_name="solution.py", github_issue_text=None):
         """
-        Acts as a Senior Lead Developer. 
-        Includes a failover to Flash if the Pro quota is reached.
+        Ultra-Resilient Engine with JSON-safe Feedback Loops.
+        Ensures the Self-Correction loop never 'hangs' due to log formatting.
         """
-        review_prompt = f"""
-        Review this proposed Python fix for security, efficiency, and PEP8 standards.
-        PROPOSED CODE:
-        {code}
+        ext = file_name.split('.')[-1]
+        lang_map = {'py': 'Python', 'js': 'JavaScript', 'cpp': 'C++', 'c': 'C', 'h': 'C/C++'}
+        language = lang_map.get(ext, 'Python')
 
-        AI EXPLANATION:
-        {explanation}
-
-        Provide a critical review. If there are no issues, start with 'LGTM' (Looks Good To Me).
-        """
-        
-        try:
-            logger.info("Attempting Senior Peer Review with Gemini 3.1 Pro...")
-            response = self.client.models.generate_content(
-                model="gemini-3.1-pro-preview",
-                contents=review_prompt
-            )
-            return response.text if response.text else "Review unavailable."
-            
-        except Exception as e:
-            # FAILOVER: If Pro is busy/quota-limited, use Flash to ensure the pipeline doesn't stop
-            if "429" in str(e) or "quota" in str(e).lower():
-                logger.warning("Pro Quota reached. Falling back to Flash for Peer Review.")
-                try:
-                    response = self.client.models.generate_content(
-                        model="gemini-3-flash-preview",
-                        contents=review_prompt
-                    )
-                    return f"(Flash-Review): {response.text}"
-                except:
-                    return "Review system temporarily offline (Quota Limit)."
-            return f"Reviewer failed: {e}"
-
-    def excavate_and_repair(self, issue_id, broken_code, github_issue_text=None):
-        """
-        The Core Loop: 
-        1. Excavate (RAG) 
-        2. Restore (Fix based on GitHub Issue) 
-        3. Stabilize (Docker) 
-        4. Review (Multi-Agent) 
-        5. Report (PR)
-        """
-        # 1. EXCAVATION (Search context using the Human's Bug Description)
-        search_query = github_issue_text if github_issue_text else broken_code[:100]
-        context_snippets = retrieve_context(search_query)
+        # 1. ARCHAEOLOGICAL EXCAVATION
+        search_query = f"{github_issue_text} {file_name} cross-file dependencies"
+        context_snippets = retrieve_context(search_query, k=3) 
         context_str = "\n---\n".join([str(snippet) for snippet in context_snippets])
 
-        # 2. RESTORATION (The 'Intent-Driven' Prompt)
-        # This allows the AI to fix specific bugs described by the dev on GitHub
-        prompt = f"""
-        GITHUB ISSUE DESCRIPTION (#{issue_id}):
-        {github_issue_text if github_issue_text else 'Generic bug repair.'}
+        current_attempt_code = broken_code
+        attempts = 0
+        max_attempts = 2
+        feedback = "Initial analysis based on repository structure."
 
-        TASK:
-        Repair the Python artifact below to satisfy the developer's request. 
-        Use the provided repo context for logic consistency.
-        Return STRICT JSON with keys 'code' and 'explanation'.
+        while attempts < max_attempts:
+            attempts += 1
+            logger.info(f"Repair Attempt {attempts}/{max_attempts} for {file_name}")
 
-        CONTEXT:
-        {context_str}
+            if attempts > 1:
+                st.warning(f"Attempt 1 Failed. Self-Correcting...", icon="🤖")
+                time.sleep(5) # Fast cooldown for live demo
 
-        BROKEN ARTIFACT:
-        {broken_code}
-        """
+            # 2. THE CONTEXTUAL PROMPT
+            prompt = f"""
+            ACT AS: Senior Software Architect.
+            TASK: Fix the code and ensure multi-file consistency.
+            
+            RETURN ONLY JSON:
+            {{
+                "patches": {{"path": "code"}},
+                "explanation": "text",
+                "security_audit": "text",
+                "is_secure": true
+            }}
 
-        for model_name in self.available_models:
+            CONTEXT: {context_str}
+            FILE: {file_name}
+            CODE: {current_attempt_code}
+            COMPILER_FEEDBACK: {feedback}
+            """
+
             try:
-                logger.info(f"Querying Oracle: {model_name}...")
+                # Using Gemini 3 Flash for speed and high context window
+                model_name = "gemini-3-flash-preview" 
+                
                 response = self.client.models.generate_content(
                     model=model_name,
                     contents=prompt,
                     config=types.GenerateContentConfig(response_mime_type="application/json")
                 )
                 
-                if response and response.text:
-                    ai_data = json.loads(response.text)
-                    restored_code = ai_data.get('code', '')
-                    explanation = ai_data.get('explanation', 'No explanation provided.')
-                    
-                    # 3. STABILIZATION (Docker Verification)
-                    logger.info("Verifying restoration in Docker sandbox...")
-                    success, test_log = run_isolated_test(restored_code)
-                    
-                    pr_url = None
-                    review_comments = "No review performed."
-                    
-                    if success:
-                        # 4. MULTI-AGENT REVIEW (The Critic)
-                        review_comments = self.review_restoration(restored_code, explanation)
-                        
-                        full_pr_body = (
-                            f"### 🤖 LogicFlow Restoration Summary\n"
-                            f"{explanation}\n\n"
-                            f"### 🛡️ Senior Peer Review\n"
-                            f"{review_comments}\n\n"
-                            f"### 🧪 Validation Status\n"
-                            f"- Docker Sandbox: PASS"
-                        )
+                if not response.text:
+                    raise ValueError("AI returned an empty response.")
 
-                        # 5. PR CREATION
-                        pr_url = create_pull_request(
-                            issue_id=issue_id,
-                            fixed_code=restored_code,
-                            file_path=Config.DEMO_CODE_PATH,
-                            explanation=full_pr_body
-                        )
+                ai_data = json.loads(response.text)
+                patches = ai_data.get('patches', {file_name: ai_data.get('code', '')})
+                explanation = ai_data.get('explanation', 'Structural repair performed.')
+                security_report = ai_data.get('security_audit', 'Audit passed.')
+                
+                primary_fix_code = patches.get(file_name, current_attempt_code)
+
+                # 3. WORKSPACE SYNCHRONIZATION (Pre-emptive)
+                for path, content in patches.items():
+                    os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
+                    with open(path, "w") as f:
+                        f.write(content)
+
+                # 4. DOCKER VALIDATION
+                success, test_log = run_isolated_test(primary_fix_code, file_name=file_name)
+                
+                if success:
+                    # GITHUB PR CREATION
+                    pr_url = create_pull_request(
+                        issue_id=issue_id,
+                        patches=patches,
+                        explanation=f"LogicFlow verified fix.\n\n{explanation}\n\nSecurity: {security_report}"
+                    )
 
                     return {
-                        "success": success,
-                        "restored_code": restored_code,
-                        "explanation": explanation,
-                        "review": review_comments,
+                        "success": True,
+                        "restored_code": primary_fix_code,
+                        "explanation": f"Fixed in {attempts} attempt(s).",
+                        "review": security_report,
                         "test_log": test_log,
                         "pr_url": pr_url,
-                        "model_used": model_name
+                        "files_fixed": list(patches.keys())
                     }
+                else:
+                    # CRITICAL: Sanitize the test_log before feeding it back
+                    # This prevents quotes/newlines from breaking the next JSON prompt
+                    clean_log = str(test_log).replace('"', "'").replace("\n", " ")
+                    feedback = f"DOCKER_COMPILER_ERROR: {clean_log}"
+                    current_attempt_code = primary_fix_code
+                    logger.warning(f"Transitioning to Attempt 2. Error: {clean_log}")
+                    
             except Exception as e:
-                logger.warning(f"{model_name} failed: {e}")
+                logger.error(f"LogicFlow Error: {e}")
+                feedback = f"RUNTIME_EXCEPTION: {str(e)}"
                 continue
 
-        return {"success": False, "test_log": "All restoration attempts failed."}
-
-# --- Initialization for Streamlit ---
-if 'archeologist' not in st.session_state:
-    st.session_state.archeologist = DigitalArcheologist()
-
-archeologist = st.session_state.archeologist
+        return {"success": False, "test_log": f"Failed after {max_attempts} attempts. Last Feedback: {feedback}"}
