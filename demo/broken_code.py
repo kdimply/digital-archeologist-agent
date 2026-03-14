@@ -1,4 +1,6 @@
 def run():
-    items = [1]
-    return items[0]
+    try:
+        return 10 / 0
+    except ZeroDivisionError:
+        return 0
 run()
